@@ -6,7 +6,6 @@ import re
 import sys
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 import zipfile
 
@@ -27,7 +26,7 @@ def verify_publication(package_path, namespace):
         raise ValueError('GimmiThemLegsInvalidPublicationIdentity')
     if not re.fullmatch(r'\d+\.\d+\.\d+', package_version):
         raise ValueError('GimmiThemLegsInvalidPublicationVersion')
-    version_url = f'https://thunderstore.io/api/experimental/package/{namespace}/{package_name}/{package_version}/'
+    version_url = f'https://thunderstore.io/api/experimental/package/{namespace}/{package_name}/{package_version}/?publication_check={time.time_ns()}'
     try:
         with urllib.request.urlopen(publication_request(version_url), timeout=30) as response:
             publication = json.load(response)

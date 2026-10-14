@@ -1,0 +1,43 @@
+name: GimmiThemLegsCompletePublishedRelease
+
+on:
+  workflow_dispatch:
+    inputs:
+      releaseTag:
+        required: true
+        type: string
+      releaseRunId:
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  complete:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      THUNDERSTORE_NAMESPACE: ${{ vars.THUNDERSTORE_NAMESPACE }}
+      RELEASE_VERSION: ${{ inputs.releaseTag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: GimmiThemLegsPackage
+          path: dist
+          run-id: ${{ inputs.releaseRunId }}
+          github-token: ${{ github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - shell: pwsh
+        run: |
+          if ($env:RELEASE_VERSION -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
+            throw 'GimmiThemLegsInvalidReleaseTag'
+          }
+          $ReleasePackage = "dist/GimmiThemLegs_pre_alpha-$($env:RELEASE_VERSION.Substring(1)).zip"
+          python tools/verify_published_package.py $ReleasePackage --namespace $env:THUNDERSTORE_NAMESPACE --wait 180
+          if ($LASTEXITCODE -ne 0) { throw 'GimmiThemLegsThunderstoreVerificationFailed' }
+          ./Complete-GimmiThemLegsGitHubRelease.ps1 -ReleaseVersion $env:RELEASE_VERSION -ReleasePackage $ReleasePackage

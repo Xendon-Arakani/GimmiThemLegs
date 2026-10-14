@@ -77,23 +77,4 @@ jobs:
             $PublicationStatus = $LASTEXITCODE
           }
           if ($PublicationStatus -ne 0) { throw 'GimmiThemLegsThunderstoreVerificationFailed' }
-          $GitHubRelease = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_VERSION" 2>$null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create $env:RELEASE_VERSION $env:RELEASE_PACKAGE --title 'GimmiThemLegs [pre-alpha]' --notes '' --prerelease --verify-tag
-            if ($LASTEXITCODE -ne 0) { throw 'GimmiThemLegsGitHubReleaseFailed' }
-          } else {
-            $ReleasePackageName = Split-Path $env:RELEASE_PACKAGE -Leaf
-            $GitHubReleaseAsset = ($GitHubRelease | ConvertFrom-Json).assets | Where-Object name -eq $ReleasePackageName
-            if (-not $GitHubReleaseAsset) {
-              gh release upload $env:RELEASE_VERSION $env:RELEASE_PACKAGE
-              if ($LASTEXITCODE -ne 0) { throw 'GimmiThemLegsGitHubReleaseUploadFailed' }
-            }
-          }
-          $GitHubRelease = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_VERSION"
-          if ($LASTEXITCODE -ne 0) { throw 'GimmiThemLegsGitHubReleaseVerificationFailed' }
-          $ReleasePackageName = Split-Path $env:RELEASE_PACKAGE -Leaf
-          $GitHubReleaseAsset = ($GitHubRelease | ConvertFrom-Json).assets | Where-Object name -eq $ReleasePackageName
-          $ReleasePackageHash = (Get-FileHash $env:RELEASE_PACKAGE -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($GitHubReleaseAsset.digest -ne "sha256:$ReleasePackageHash") {
-            throw 'GimmiThemLegsGitHubReleaseContentMismatch'
-          }
+          ./Complete-GimmiThemLegsGitHubRelease.ps1 -ReleaseVersion $env:RELEASE_VERSION -ReleasePackage $env:RELEASE_PACKAGE
