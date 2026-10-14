@@ -21,10 +21,12 @@ jobs:
         with:
           python-version: '3.12'
       - id: package
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
         shell: pwsh
         run: |
           if ('${{ github.ref_type }}' -eq 'tag') {
-            ./Build-GimmiThemLegsRelease.ps1 -Version '${{ github.ref_name }}'
+            ./Build-GimmiThemLegsRelease.ps1 -Version $env:RELEASE_VERSION
           } else {
             ./Build-GimmiThemLegsRelease.ps1
           }
@@ -44,6 +46,8 @@ jobs:
       THUNDERSTORE_NAMESPACE: ${{ vars.THUNDERSTORE_NAMESPACE }}
       DOTNET_ROLL_FORWARD: LatestMajor
       GH_TOKEN: ${{ github.token }}
+      RELEASE_VERSION: ${{ github.ref_name }}
+      RELEASE_PACKAGE: ${{ needs.build.outputs.package }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -53,6 +57,9 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - shell: pwsh
         run: |
           if (-not $env:TCLI_AUTH_TOKEN -or -not $env:THUNDERSTORE_NAMESPACE) {
@@ -60,7 +67,9 @@ jobs:
           }
           dotnet tool install tcli --tool-path "$env:RUNNER_TEMP/thunderstore" --version 0.2.4
           if ($LASTEXITCODE -ne 0) { throw 'GimmiThemLegsPublisherInstallationFailed' }
-          & "$env:RUNNER_TEMP/thunderstore/tcli.exe" publish --file '${{ needs.build.outputs.package }}' --package-namespace $env:THUNDERSTORE_NAMESPACE --package-name GimmiThemLegs_pre_alpha --package-version '${{ needs.build.outputs.version }}'
+          python tools/write_publisher_configuration.py $env:RELEASE_PACKAGE --namespace $env:THUNDERSTORE_NAMESPACE --output "$env:RUNNER_TEMP/GimmiThemLegsPublisher.toml"
+          if ($LASTEXITCODE -ne 0) { throw 'GimmiThemLegsPublisherConfigurationFailed' }
+          & "$env:RUNNER_TEMP/thunderstore/tcli.exe" publish --file $env:RELEASE_PACKAGE --config-path "$env:RUNNER_TEMP/GimmiThemLegsPublisher.toml"
           if ($LASTEXITCODE -ne 0) { throw 'GimmiThemLegsThunderstorePublishingFailed' }
-          gh release create '${{ github.ref_name }}' '${{ needs.build.outputs.package }}' --title 'GimmiThemLegs [pre-alpha]' --notes '' --prerelease --verify-tag
+          gh release create $env:RELEASE_VERSION $env:RELEASE_PACKAGE --title 'GimmiThemLegs [pre-alpha]' --notes '' --prerelease --verify-tag
           if ($LASTEXITCODE -ne 0) { throw 'GimmiThemLegsGitHubReleaseFailed' }
