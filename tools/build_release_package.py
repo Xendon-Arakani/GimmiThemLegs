@@ -22,6 +22,10 @@ def synchronize_release_version(root, version):
         if convar['Name'] == 'first_person_body_version':
             convar['DefaultValue'] = version
     mod_path.write_text(json.dumps(mod, indent=2) + '\n', encoding='utf-8')
+    publisher_configuration_path = root / 'thunderstore.toml'
+    publisher_configuration = publisher_configuration_path.read_text(encoding='utf-8')
+    publisher_configuration = re.sub(r'^versionNumber = "[^"]*"$', 'versionNumber = ' + json.dumps(version), publisher_configuration, flags=re.MULTILINE)
+    publisher_configuration_path.write_text(publisher_configuration, encoding='utf-8')
     return manifest, mod
 
 

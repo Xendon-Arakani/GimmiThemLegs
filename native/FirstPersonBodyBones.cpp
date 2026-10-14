@@ -76,6 +76,8 @@ static GetPilotCameraPosition getPilotCameraPosition;
 static NativeVector crouchedSlideHipInPilotFrame;
 static float crouchedSlideHipBelowCamera;
 static bool crouchedSlideAnchorValid;
+static float standingHipBelowCamera;
+static bool standingHipAnchorValid;
 static bool readinessLogPending;
 static bool crouchedJumpSlideLogPending;
 static constexpr unsigned int SharedPilotBonesEffect = 1;
@@ -148,6 +150,11 @@ struct NativeBodyState
     unsigned int pilotDrawFlags;
     unsigned int shadowDepthDrawReplacements;
     unsigned int completePilotPoseCopies;
+    unsigned int fallingTranslationLockSubmissions;
+    float fallingLockedHipBelowCamera;
+    float fallingDrawnHipBelowCamera;
+    float fallingHipCorrectionZ;
+    unsigned int groundedCrouchTransition;
 };
 
 extern "C" __declspec(dllexport) NativeBodyState FirstPersonBodyNativeState = {};
@@ -336,6 +343,7 @@ static void* CreateClientVisualPilotBody(void* pilot, const char* modelName)
             visualSequence = -1;
             visualCycle = 0.0f;
             crouchedSlideAnchorValid = false;
+            standingHipAnchorValid = false;
         }
         *reinterpret_cast<unsigned int*>(static_cast<unsigned char*>(body) + EntityEffectsOffset) |= SharedPilotBonesEffect | DisableProxyShadowEffect;
         ConfigureWaistFadeBand(static_cast<unsigned char*>(body), modelName);
@@ -391,7 +399,7 @@ static int DrawBodyWithWaistFade(void* renderable, void* renderContext, int flag
     return drawBody(renderable, renderContext, flags, &fadedInstance);
 }
 
-static bool SetupBodyBonesWithLockedSlideTranslation(void* renderable, NativeBoneMatrix* destination, int maximumBones, int boneMask, float renderTime)
+static bool SetupBodyBonesWithTranslationLock(void* renderable, NativeBoneMatrix* destination, int maximumBones, int boneMask, float renderTime)
 {
     auto setupBones = reinterpret_cast<SetupClientBodyBones>(poseHook.trampoline);
     auto body = static_cast<unsigned char*>(renderable) - 0x10;
@@ -430,7 +438,7 @@ static bool SetupBodyBonesWithLockedSlideTranslation(void* renderable, NativeBon
     }
     if (ready && body == visualShadowBody && visualMainBody)
     {
-        SetupBodyBonesWithLockedSlideTranslation(static_cast<unsigned char*>(visualMainBody) + 0x10, nullptr, 256, boneMask, renderTime);
+        SetupBodyBonesWithTranslationLock(static_cast<unsigned char*>(visualMainBody) + 0x10, nullptr, 256, boneMask, renderTime);
         auto shadowBones = *reinterpret_cast<NativeBoneMatrix**>(body + CachedBoneMatricesOffset);
         auto visibleBones = *reinterpret_cast<NativeBoneMatrix**>(static_cast<unsigned char*>(visualMainBody) + CachedBoneMatricesOffset);
         auto shadowHeader = *reinterpret_cast<unsigned char**>(body + StudioHeaderOffset);
@@ -458,6 +466,45 @@ static bool SetupBodyBonesWithLockedSlideTranslation(void* renderable, NativeBon
             }
             FirstPersonBodyNativeState.shadowHipPoseDifference = largestDifference;
             FirstPersonBodyNativeState.shadowPoseSubmissions++;
+        }
+    }
+    if (ready && visibleBody && localPilot && (effects & SharedPilotBonesEffect))
+    {
+        auto bodyHeader = *reinterpret_cast<unsigned char**>(body + StudioHeaderOffset);
+        auto bodyBones = *reinterpret_cast<NativeBoneMatrix**>(body + CachedBoneMatricesOffset);
+        auto modelHeader = bodyHeader ? *reinterpret_cast<unsigned char**>(bodyHeader + 8) : nullptr;
+        int boneCount = modelHeader ? *reinterpret_cast<int*>(modelHeader + 160) : 0;
+        if (bodyBones && boneCount > PilotHipBone && boneCount <= 256)
+        {
+            NativeVector camera = *getPilotCameraPosition(localPilot);
+            float hipBelowCamera = camera.z - bodyBones[PilotHipBone].values[11];
+            if (body == visualMainBody && !FirstPersonBodyNativeState.airborne && !FirstPersonBodyNativeState.crouchHeld)
+            {
+                standingHipBelowCamera = hipBelowCamera;
+                standingHipAnchorValid = true;
+            }
+            if (FirstPersonBodyNativeState.falling && !FirstPersonBodyNativeState.crouchHeld)
+            {
+                if (!standingHipAnchorValid)
+                {
+                    standingHipBelowCamera = hipBelowCamera;
+                    standingHipAnchorValid = true;
+                }
+                float correctionZ = camera.z - standingHipBelowCamera - bodyBones[PilotHipBone].values[11];
+                for (int bone = 0; bone < boneCount; ++bone)
+                {
+                    bodyBones[bone].values[11] += correctionZ;
+                    if (destination && destination != bodyBones && bone < maximumBones)
+                        destination[bone] = bodyBones[bone];
+                }
+                if (body == visualMainBody)
+                {
+                    FirstPersonBodyNativeState.fallingTranslationLockSubmissions++;
+                    FirstPersonBodyNativeState.fallingLockedHipBelowCamera = standingHipBelowCamera;
+                    FirstPersonBodyNativeState.fallingDrawnHipBelowCamera = camera.z - bodyBones[PilotHipBone].values[11];
+                    FirstPersonBodyNativeState.fallingHipCorrectionZ = correctionZ;
+                }
+            }
         }
     }
     if (!ready || visualActivity != MultiplayerCrouchSlideActivity || visualSequence == -1 || !localPilot)
@@ -549,6 +596,7 @@ using GetSquirrelEntityType = char** (*)();
 using GetSquirrelBool = unsigned int (*)(void*, int);
 using GetSquirrelFloat = float (*)(void*, int);
 using RegisterSquirrelFunction = long long (*)(void*, SquirrelFunctionRegistration*, char);
+using DefineSquirrelConstant = void (*)(void*, const char*, int);
 using CreateEntityScriptInstance = SquirrelObject* (*)(void*);
 using PushSquirrelObject = void (*)(void*, SquirrelObject*);
 
@@ -610,6 +658,7 @@ static int ReleaseVisualBodies(void*)
     visualActivity = -1;
     visualSequence = -1;
     crouchedSlideAnchorValid = false;
+    standingHipAnchorValid = false;
     FirstPersonBodyNativeState.shadowBody = nullptr;
     FirstPersonBodyNativeState.visualBody = nullptr;
     FirstPersonBodyNativeState.pilot = nullptr;
@@ -635,10 +684,12 @@ static int RequestVisualActivity(void* squirrelVm)
     bool airborne = getBool(squirrelVm, 3) != 0;
     bool jumpRequested = getBool(squirrelVm, 4) != 0;
     float verticalVelocity = getFloat(squirrelVm, 5);
+    bool walkingCrouchRequested = getBool(squirrelVm, 7) != 0;
     int sourceActivity = getSequenceActivity(localPilot, *reinterpret_cast<int*>(static_cast<unsigned char*>(localPilot) + PilotSequenceOffset));
     bool sourceJumpActivity = (sourceActivity >= MultiplayerJumpActivity && sourceActivity <= MultiplayerDoubleJumpActivity) || (sourceActivity >= MultiplayerWallJumpLeftActivity && sourceActivity <= MultiplayerWallJumpUpActivity) || (sourceActivity >= MultiplayerJumpPrimaryActivity && sourceActivity <= MultiplayerJumpLandPrimaryActivity) || (sourceActivity >= MultiplayerJumpMeleeActivity && sourceActivity <= MultiplayerJumpLandMeleeActivity);
     bool groundedCrouchWalk = !airborne && ((sourceActivity >= MultiplayerCrouchWalkActivity && sourceActivity <= MultiplayerStaggeredCrouchWalkRightActivity) || sourceActivity == MultiplayerCrouchWalkPrimaryActivity || sourceActivity == MultiplayerCrouchWalkMeleeActivity);
-    int activity = crouchHeld && !groundedCrouchWalk ? MultiplayerCrouchSlideActivity : -1;
+    bool groundedCrouchTransition = crouchHeld && walkingCrouchRequested && !airborne && !jumpRequested && !sourceJumpActivity;
+    int activity = crouchHeld && !groundedCrouchWalk && !groundedCrouchTransition ? MultiplayerCrouchSlideActivity : -1;
     auto entity = static_cast<unsigned char*>(body);
     auto effects = reinterpret_cast<unsigned int*>(entity + EntityEffectsOffset);
     *effects |= DisableProxyShadowEffect;
@@ -673,6 +724,7 @@ static int RequestVisualActivity(void* squirrelVm)
         FirstPersonBodyNativeState.jumpRequested = jumpRequested;
         FirstPersonBodyNativeState.sourceJumpActivity = sourceJumpActivity;
         FirstPersonBodyNativeState.groundedCrouchWalk = groundedCrouchWalk;
+        FirstPersonBodyNativeState.groundedCrouchTransition = groundedCrouchTransition;
         if (visualSequence == -1)
             FirstPersonBodyNativeState.translationLocked = 0;
         FirstPersonBodyNativeState.verticalVelocity = verticalVelocity;
@@ -732,7 +784,7 @@ static void InstallClientVisualBodyRuntime(NativeModule clientModule)
     {
         return;
     }
-    if (!InstallVerifiedHook(poseHook, client + 0xfe760, reinterpret_cast<void*>(SetupBodyBonesWithLockedSlideTranslation), 21))
+    if (!InstallVerifiedHook(poseHook, client + 0xfe760, reinterpret_cast<void*>(SetupBodyBonesWithTranslationLock), 21))
     {
         RemoveVerifiedHook(drawHook);
         return;
@@ -807,7 +859,7 @@ static SquirrelFunctionRegistration releaseVisualBodiesRegistration = {
 
 static SquirrelFunctionRegistration visualActivityRegistration = {
     "FirstPersonBody_RequestVisualActivity", "RequestVisualActivity", "", "void",
-    "entity bodyPart, bool crouchHeld, bool airborne, bool jumpRequested, float verticalVelocity, float frameDuration",
+    "entity bodyPart, bool crouchHeld, bool airborne, bool jumpRequested, float verticalVelocity, float frameDuration, bool walkingCrouchRequested",
     0, 0, nullptr, 0, 0x20, nullptr, 0, 0, 0, RequestVisualActivity
 };
 
@@ -820,6 +872,8 @@ static void SquirrelVmCreated(void*, void* squirrelVm)
         reinterpret_cast<RegisterSquirrelFunction>(clientModuleBase + 0x108e0)(squirrelVm, &createVisualShadowRegistration, 1);
         reinterpret_cast<RegisterSquirrelFunction>(clientModuleBase + 0x108e0)(squirrelVm, &releaseVisualBodiesRegistration, 1);
         reinterpret_cast<RegisterSquirrelFunction>(clientModuleBase + 0x108e0)(squirrelVm, &visualActivityRegistration, 1);
+        bool nativeReady = drawHook.entry && poseHook.entry && shadowBatchHook.entry && clonePilotPose;
+        reinterpret_cast<DefineSquirrelConstant>(clientModuleBase + 0x12120)(squirrelVm, "FirstPersonBodyNativeReady", nativeReady ? 1 : 0);
     }
 }
 

@@ -20,12 +20,18 @@ struct
     bool crouchHeld = false
     bool airborne = false
     bool falling = false
+    bool nativeReady = false
 } file
 
 void function FirstPersonBody_Start()
 {
+#if FirstPersonBodyNativeReady
+    file.nativeReady = true
     print( "FirstPersonBody_ClientStarted" )
     thread FirstPersonBody_Update()
+#else
+    printt( "FirstPersonBody_NativePluginMissing", "FirstPersonBodyBones.dll" )
+#endif
 }
 
 void function FirstPersonBody_Toggle()
@@ -36,14 +42,16 @@ void function FirstPersonBody_Toggle()
 
 void function FirstPersonBody_PrintStatus()
 {
-    printt( "FirstPersonBody_Status", "version", GetConVarString( "first_person_body_version" ), "enabled", GetConVarBool( "first_person_body_enabled" ), "bodyParts", file.bodyParts.len(), "visible", file.visible, "crouchHeld", file.crouchHeld, "airborne", file.airborne, "falling", file.falling, "scriptUpdateFrames", file.scriptUpdateFrames, "bodyCreations", file.bodyCreations, "frameTime", FrameTime() )
+    printt( "FirstPersonBody_Status", "version", GetConVarString( "first_person_body_version" ), "enabled", GetConVarBool( "first_person_body_enabled" ), "nativeReady", file.nativeReady, "bodyParts", file.bodyParts.len(), "visible", file.visible, "crouchHeld", file.crouchHeld, "airborne", file.airborne, "falling", file.falling, "scriptUpdateFrames", file.scriptUpdateFrames, "bodyCreations", file.bodyCreations, "frameTime", FrameTime() )
     if ( file.bodyParts.len() && IsValid( file.pilot ) )
         printt( "FirstPersonBody_LowerBodyFollowing", file.pilot.GetModelName(), file.pilot.GetOrigin(), file.pilot.GetAngles() )
 }
 
 void function FirstPersonBody_Destroy()
 {
+#if FirstPersonBodyNativeReady
     FirstPersonBody_ReleaseVisualBodies()
+#endif
     if ( IsValid( file.shadowBody ) )
         file.shadowBody.Destroy()
     file.shadowBody = null
@@ -66,6 +74,7 @@ void function FirstPersonBody_Destroy()
 
 void function FirstPersonBody_Update()
 {
+#if FirstPersonBodyNativeReady
     OnThreadEnd( FirstPersonBody_Destroy )
     while ( true )
     {
@@ -143,9 +152,13 @@ void function FirstPersonBody_Update()
         file.airborne = !pilot.IsOnGround()
         file.falling = file.airborne && velocity.z < 0.0
         bool jumpRequested = pilot.IsInputCommandPressed( IN_JUMP )
+        float horizontalSpeedSquared = velocity.x * velocity.x + velocity.y * velocity.y
+        float slideStartSpeed = expect float( pilot.GetPlayerSettingsField( "slideRequiredStartSpeed" ) )
+        bool walkingCrouchRequested = !file.airborne && horizontalSpeedSquared > 0.0 && horizontalSpeedSquared < slideStartSpeed * slideStartSpeed
         foreach ( entity bodyPart in file.bodyParts )
-            FirstPersonBody_RequestVisualActivity( bodyPart, file.crouchHeld, file.airborne, jumpRequested, velocity.z, FrameTime() )
+            FirstPersonBody_RequestVisualActivity( bodyPart, file.crouchHeld, file.airborne, jumpRequested, velocity.z, FrameTime(), walkingCrouchRequested )
         file.visible = true
         file.scriptUpdateFrames++
     }
+#endif
 }
