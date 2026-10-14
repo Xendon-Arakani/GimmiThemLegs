@@ -1,0 +1,9 @@
+/research/
+/local_test/
+/native/build/
+/plugins/
+/dist/
+/.publish-tools/
+*.zip
+__pycache__/
+*.pyc

@@ -1,0 +1,25 @@
+[config]
+schemaVersion = "0.0.1"
+
+[package]
+namespace = "GimmiThemLegs"
+name = "GimmiThemLegs_pre_alpha"
+versionNumber = "0.9.1"
+description = "Making legs great again."
+websiteUrl = "https://github.com/Xendon-Arakani/GimmiThemLegs"
+containsNsfwContent = false
+
+[package.dependencies]
+"northstar-Northstar" = "1.31.13"
+
+[build]
+icon = "icon.png"
+readme = "README.md"
+outdir = "dist"
+
+[publish]
+repository = "https://thunderstore.io"
+communities = ["northstar"]
+
+[publish.categories]
+northstar = ["client-side", "models", "mods"]

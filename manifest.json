@@ -1,0 +1,9 @@
+{
+  "name": "GimmiThemLegs_pre_alpha",
+  "version_number": "0.9.1",
+  "website_url": "https://github.com/Xendon-Arakani/GimmiThemLegs",
+  "description": "Making legs great again.",
+  "dependencies": [
+    "northstar-Northstar-1.31.13"
+  ]
+}

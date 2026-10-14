@@ -1,0 +1,51 @@
+{
+  "Name": "GimmiThemLegs [pre-alpha]",
+  "Description": "Making legs great again.",
+  "Version": "0.9.1",
+  "LoadPriority": 10,
+  "RequiredOnClient": false,
+  "ConVars": [
+    {
+      "Name": "first_person_body_version",
+      "DefaultValue": "0.9.1",
+      "Flags": "CLIENTDLL | USERINFO | PRINTABLEONLY"
+    },
+    {
+      "Name": "first_person_body_enabled",
+      "DefaultValue": "1",
+      "Flags": "CLIENTDLL | USERINFO"
+    }
+  ],
+  "ConCommands": [
+    {
+      "Name": "first_person_body_toggle",
+      "Function": "FirstPersonBody_Toggle",
+      "Context": "CLIENT"
+    },
+    {
+      "Name": "first_person_body_status",
+      "Function": "FirstPersonBody_PrintStatus",
+      "Context": "CLIENT"
+    }
+  ],
+  "Scripts": [
+    {
+      "Path": "first_person_body_models.nut",
+      "RunOn": "CLIENT && MP"
+    },
+    {
+      "Path": "first_person_body_precache.nut",
+      "RunOn": "CLIENT && MP",
+      "ClientCallback": {
+        "Before": "FirstPersonBody_Precache"
+      }
+    },
+    {
+      "Path": "first_person_body_client.nut",
+      "RunOn": "CLIENT && MP",
+      "ClientCallback": {
+        "After": "FirstPersonBody_Start"
+      }
+    }
+  ]
+}
