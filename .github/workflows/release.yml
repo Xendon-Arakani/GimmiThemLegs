@@ -69,7 +69,31 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'GimmiThemLegsPublisherInstallationFailed' }
           python tools/write_publisher_configuration.py $env:RELEASE_PACKAGE --namespace $env:THUNDERSTORE_NAMESPACE --output "$env:RUNNER_TEMP/GimmiThemLegsPublisher.toml"
           if ($LASTEXITCODE -ne 0) { throw 'GimmiThemLegsPublisherConfigurationFailed' }
-          & "$env:RUNNER_TEMP/thunderstore/tcli.exe" publish --file $env:RELEASE_PACKAGE --config-path "$env:RUNNER_TEMP/GimmiThemLegsPublisher.toml"
-          if ($LASTEXITCODE -ne 0) { throw 'GimmiThemLegsThunderstorePublishingFailed' }
-          gh release create $env:RELEASE_VERSION $env:RELEASE_PACKAGE --title 'GimmiThemLegs [pre-alpha]' --notes '' --prerelease --verify-tag
-          if ($LASTEXITCODE -ne 0) { throw 'GimmiThemLegsGitHubReleaseFailed' }
+          python tools/verify_published_package.py $env:RELEASE_PACKAGE --namespace $env:THUNDERSTORE_NAMESPACE
+          $PublicationStatus = $LASTEXITCODE
+          if ($PublicationStatus -eq 3) {
+            & "$env:RUNNER_TEMP/thunderstore/tcli.exe" publish --file $env:RELEASE_PACKAGE --config-path "$env:RUNNER_TEMP/GimmiThemLegsPublisher.toml"
+            python tools/verify_published_package.py $env:RELEASE_PACKAGE --namespace $env:THUNDERSTORE_NAMESPACE --wait 180
+            $PublicationStatus = $LASTEXITCODE
+          }
+          if ($PublicationStatus -ne 0) { throw 'GimmiThemLegsThunderstoreVerificationFailed' }
+          $GitHubRelease = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_VERSION" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:RELEASE_VERSION $env:RELEASE_PACKAGE --title 'GimmiThemLegs [pre-alpha]' --notes '' --prerelease --verify-tag
+            if ($LASTEXITCODE -ne 0) { throw 'GimmiThemLegsGitHubReleaseFailed' }
+          } else {
+            $ReleasePackageName = Split-Path $env:RELEASE_PACKAGE -Leaf
+            $GitHubReleaseAsset = ($GitHubRelease | ConvertFrom-Json).assets | Where-Object name -eq $ReleasePackageName
+            if (-not $GitHubReleaseAsset) {
+              gh release upload $env:RELEASE_VERSION $env:RELEASE_PACKAGE
+              if ($LASTEXITCODE -ne 0) { throw 'GimmiThemLegsGitHubReleaseUploadFailed' }
+            }
+          }
+          $GitHubRelease = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_VERSION"
+          if ($LASTEXITCODE -ne 0) { throw 'GimmiThemLegsGitHubReleaseVerificationFailed' }
+          $ReleasePackageName = Split-Path $env:RELEASE_PACKAGE -Leaf
+          $GitHubReleaseAsset = ($GitHubRelease | ConvertFrom-Json).assets | Where-Object name -eq $ReleasePackageName
+          $ReleasePackageHash = (Get-FileHash $env:RELEASE_PACKAGE -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($GitHubReleaseAsset.digest -ne "sha256:$ReleasePackageHash") {
+            throw 'GimmiThemLegsGitHubReleaseContentMismatch'
+          }

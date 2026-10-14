@@ -1,13 +1,13 @@
 {
   "Name": "GimmiThemLegs [pre-alpha]",
   "Description": "Making legs great again.",
-  "Version": "0.9.1",
+  "Version": "0.9.2",
   "LoadPriority": 10,
   "RequiredOnClient": false,
   "ConVars": [
     {
       "Name": "first_person_body_version",
-      "DefaultValue": "0.9.1",
+      "DefaultValue": "0.9.2",
       "Flags": "CLIENTDLL | USERINFO | PRINTABLEONLY"
     },
     {
